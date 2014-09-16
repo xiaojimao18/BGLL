@@ -47,7 +47,7 @@ for kid in kids_list:
 	num += 1;
 
 try:
-	file_path = '/home/cowx/workspace/BGLL/keyword.txt'
+	file_path = '/home/cowx/workspace/BGLL/keyword/keyword.txt'
 	f = open(file_path, 'w+')
 	i = 0
 	while i < len(link1):
@@ -60,10 +60,10 @@ finally:
 	if f:
 		f.close();
 
-os.system("./convert -i keyword.txt -o keyword.bin")
-os.system("./community keyword.bin -l -1 > keyword.tree")
+os.system("./convert -i keyword/keyword.txt -o keyword/keyword.bin")
+os.system("./community keyword/keyword.bin -l -1 > keyword/keyword.tree")
 
-output = os.popen("./hierarchy keyword.tree -n")
+output = os.popen("./hierarchy keyword/keyword.tree -n")
 level = total_level = len(output.readlines()) - 2;
 
 is_used = set()
@@ -78,7 +78,7 @@ while level >= 1:
 	cate = -1
 	kid = -1
 
-	output = os.popen("./hierarchy keyword.tree -l %d" % level)
+	output = os.popen("./hierarchy keyword/keyword.tree -l %d" % level)
 	for line in output.readlines():
 		line = line.strip()
 
@@ -114,7 +114,7 @@ try:
 	sql = "update keyword set father = -1"
 	cursor.execute(sql)
 
-	file_path = '/home/cowx/workspace/BGLL/keyword.tree'
+	file_path = '/home/cowx/workspace/BGLL/keyword/keyword.tree'
 	f = open(file_path, 'r')
 
 	level = 0;
