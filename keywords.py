@@ -7,72 +7,63 @@ db_user = "root"
 db_pass = "root"
 db_name = "papernet"
 
+conn = ''		# global database connection
+cursor = ''		# global database cursor
+
 # read the database keyword_keyword_relation
-link1 = list()
-link2 = list()
-kid_num = dict()
-kids_set = set()
-try:
-	conn = MySQLdb.connect(db_host, db_user, db_pass, db_name)
-	cursor = conn.cursor()
-	sql = "select kid1, kid2 from keyword_keyword_relation order by kid1, kid2"
-	cursor.execute(sql)
-	result = cursor.fetchall()
-	for row in result:
-		link1.append(row[0])
-		link2.append(row[1])
-
-		kids_set.add(row[0])
-		kids_set.add(row[1])
-
-		kid_num[row[0]] = kid_num.get(row[0], 0) + 1;
-		kid_num[row[1]] = kid_num.get(row[1], 0) + 1;
-except:
-	print "Error happened."
-finally:
-	if cursor:
-		cursor.close()
-	if conn:
-		conn.close()
-
-# calculate the map between new number and old number
-kids_list = list(kids_set)
-kids_list.sort();
-map1 = dict()
-map2 = dict()
-num = 0
-for kid in kids_list:
-	map1[kid] = num
-	map2[num] = kid
-	num += 1;
-
+kid_num = dict()	# the degree of each node
+kid_set = set()		# the set of all nodes
 try:
 	file_path = '/home/cowx/workspace/BGLL/keyword/keyword.txt'
 	f = open(file_path, 'w+')
-	i = 0
-	while i < len(link1):
-		f.write('%d %d\n' % (map1[link1[i]], map1[link2[i]]))
-		i += 1
+
+	conn = MySQLdb.connect(db_host, db_user, db_pass, db_name)
+	cursor = conn.cursor()
+	sql = "select kid1, kid2, num from keyword_keyword_relation order by kid1, kid2"
+	cursor.execute(sql)
+	result = cursor.fetchall()
+
+	for row in result:
+		kid_set.add(row[0])
+		kid_set.add(row[1])
+
+		kid_num[row[0]] = kid_num.get(row[0], 0) + row[2]
+		kid_num[row[1]] = kid_num.get(row[1], 0) + row[2]
+
+		f.write('%d %d %d\n' % (row[0], row[1], row[2]))
 except:
-	print "file", f.name, "failed"
-	exit();
+	print "***********************************************"
+	print "Error happened while creating the file keyword.txt"
+	print "***********************************************"
 finally:
 	if f:
-		f.close();
+		f.close()
 
-os.system("./convert -i keyword/keyword.txt -o keyword/keyword.bin")
-os.system("./community keyword/keyword.bin -l -1 > keyword/keyword.tree")
+# calculate the map between new number and old number
+kid_list = list(kid_set)
+kid_list.sort()
+map1 = dict()
+map2 = dict()
+num = 0
+for kid in kid_list:
+	map1[kid] = num
+	map2[num] = kid
+	num += 1
+
+
+os.system("./convert -i keyword/keyword.txt -o keyword/keyword.bin -w")
+os.system("./community keyword/keyword.bin -w -l -1 > keyword/keyword.tree")
+
 
 output = os.popen("./hierarchy keyword/keyword.tree -n")
-level = total_level = len(output.readlines()) - 2;
+level = total_level = len(output.readlines()) - 2
 
-is_used = set()
-level_cate = dict()
-level_kid = dict()
-result =dict()
+
+level_cate = dict()		# record the category contains which nodes in every level
+is_used = set()			# whether used the node as a category
+result =dict()			# recode which node presents the catogory in every level
 while level >= 1:
 	level_cate[level] = dict()
-	level_kid[level] = dict()
 	result[level] = dict()
 
 	cate = -1
@@ -90,9 +81,7 @@ while level >= 1:
 		if not level_cate[level].has_key(cate):
 			level_cate[level][cate] = dict()
 
-		# print "level: %d; cate: %d; kid: %d" % (level, cate, kid)
 		level_cate[level][cate][kid] = kid_num.get(map2[kid], 0)
-		level_kid[level][kid] = cate;
 
 	for cate in level_cate[level]:
 		tmp = sorted(level_cate[level][cate].iteritems(), key = lambda d:d[1], reverse = True)
@@ -102,22 +91,17 @@ while level >= 1:
 				result[level][cate] = kid[0]
 				break
 
-	# print "level", level, "done."
 	level = level - 1
 
 
-
-
 try:
-	conn = MySQLdb.connect(db_host, db_user, db_pass, db_name)
-	cursor = conn.cursor()
 	sql = "update keyword set father = -1"
 	cursor.execute(sql)
 
 	file_path = '/home/cowx/workspace/BGLL/keyword/keyword.tree'
 	f = open(file_path, 'r')
 
-	level = 0;
+	level = 0
 	for line in f.readlines():
 		line = line.strip()
 
@@ -140,14 +124,15 @@ try:
 			sql = "update keyword set father = %d where id = %d" % (map2[result[level][cate]], map2[result[level - 1][kid]])
 
 		cursor.execute(sql)
-
-		# print level, kid, cate
 except:
-	print "Error happened.", level, kid, cate, sql
+	print "***********************************************"
+	print "Error happened while updating the database"
+	print "***********************************************"
 finally:
 	if cursor:
 		cursor.close()
 	if conn:
+		conn.commit()
 		conn.close()
 
 print "BGLL DONE."
