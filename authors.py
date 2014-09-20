@@ -34,6 +34,7 @@ def CalcFather(wordlist, usedset):
 			bestscore = score[word]
 	return bestword
 
+
 def WordSimilarty(wa, wb):
 	lena = len(wa)
 	lenb = len(wb)
@@ -43,18 +44,12 @@ def WordSimilarty(wa, wb):
 		f.append(j)
 
 	for i in range(1, lena + 1):
-		f[i][0] = i
-	for j in range(1, lenb + 1):
-		f[0][j] = j
-
-	for i in range(1, lena + 1):
 		for j in range(1, lenb + 1):
-			if wa[i] == wb[j]:
+			if wa[i - 1] == wb[j - 1]:
 				f[i][j] = f[i - 1][j - 1] + 1
 			else:
 				f[i][j] = max(f[i - 1][j], f[i][j - 1])
-
-	return 1.0 * f[lena][lenb] / max(lena, lenb)
+	return 1.0 * f[lena][lenb] / max(lena, lenb);
 
 
 
