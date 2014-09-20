@@ -51,7 +51,14 @@ def WordSimilarty(wa, wb):
 				f[i][j] = max(f[i - 1][j], f[i][j - 1])
 	return 1.0 * f[lena][lenb] / max(lena, lenb);
 
-
+def DuplicatedWords(wordlist, srcWord):
+        dup = list()
+        for word in wordlist:
+                sim = (1 - WordSimilarty(srcWord, word)) * max(len(srcWord), len(word))
+                print sim, word
+                if sim < 4.0:
+                        dup.append(word)
+        return dup
 
 # read the database author_author_relation
 aid_set = set()  # the set of all nodes
