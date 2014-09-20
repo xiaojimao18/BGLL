@@ -14,7 +14,9 @@ cursor = ''		# global database cursor
 
 
 def CalcFather(wordlist, usedset):
-	# return wordlist[0]
+        """
+        Given wordlist and usedset, output the father word
+        """
 	score = {}
 	for word in wordlist:
 		p = 0
@@ -29,11 +31,10 @@ def CalcFather(wordlist, usedset):
 	for word in wordlist:
 		if word in usedset:
 			continue
-		if score[word] > bestscore:
+		if score[word] > bestscore or (score[word] == bestscore and len(word) < len(bestword)):
 			bestword = word
 			bestscore = score[word]
 	return bestword
-
 
 def WordSimilarty(wa, wb):
 	lena = len(wa)
@@ -51,14 +52,58 @@ def WordSimilarty(wa, wb):
 				f[i][j] = max(f[i - 1][j], f[i][j - 1])
 	return 1.0 * f[lena][lenb] / max(lena, lenb);
 
+def IsSameWords(wa, wb):
+        sim = (1 - WordSimilarty(wa, wb)) * max(len(wa), len(wb))
+        if sim < 4.0:
+                return True
+        else:
+                return False
+
 def DuplicatedWords(wordlist, srcWord):
+        """
+        find similar words with srcWord in the wordlist
+        output list
+        """
         dup = list()
         for word in wordlist:
-                sim = (1 - WordSimilarty(srcWord, word)) * max(len(srcWord), len(word))
-                print sim, word
-                if sim < 4.0:
+                if IsSameWords(word, srcWord):
                         dup.append(word)
         return dup
+
+def DuplicatedWords4ALL(wordlist):
+        """
+        find all duplicated words in the wordlist
+        output set
+        """
+        wordSim = {}
+        for word in wordlist:
+                simList = list()
+                for other in wordlist:
+                        if IsSameWords(word, other) and word != other:
+                                simList.append(other)
+                wordSim[word] = simList
+        dupSet = set()
+        for word in wordlist:
+                if word in dupSet:
+                        continue
+                simSet = set()
+                GetSimSet(word, wordSim, simSet)
+                father = CalcFather(list(simSet), set())
+                for other in simSet:
+                        if other != father:
+                                dupSet.add(other)
+        return dupSet
+
+def GetSimSet(word, wordSim, simSet):
+        if word in simSet:
+                return
+        simSet.add(word)
+        for other in wordSim[word]:
+                GetSimSet(other, wordSim, simSet)
+
+#wordlist = ['cluster', 'clusters', 'clustering', 'community' ,'communities', 'recommender', 'recommendation', 'recommend']
+#print DuplicatedWords4ALL(wordlist)        
+
 
 # read the database author_author_relation
 aid_set = set()  # the set of all nodes
