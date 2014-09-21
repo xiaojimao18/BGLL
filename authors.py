@@ -105,8 +105,10 @@ def GetSimSet(word, wordSim, simSet):
 #print DuplicatedWords4ALL(wordlist)        
 
 
-# read the database author_author_relation
-aid_set = set()  # the set of all nodes
+# read the database author_author_relation and write into author.txt
+aid_set = set() # the set of all nodes
+map1 = dict()	# from old to new
+map2 = dict()	# from new to old
 try:
 	file_path = '/home/cowx/workspace/BGLL/author/author.txt'
 	f = open(file_path, 'w+')
@@ -121,7 +123,20 @@ try:
 		aid_set.add(row[0])
 		aid_set.add(row[1])
 
-		f.write('%d %d %d\n' % (row[0], row[1], row[2]))
+	aid_list = list(aid_set)
+	aid_list.sort()
+
+	num = 0
+	for aid in aid_list:
+		map1[aid] = num
+		map2[num] = aid
+		num += 1
+
+	for row in result:
+		aid1 = map1[row[0]]
+		aid2 = map1[row[1]]
+
+		f.write('%d %d %d\n' % (aid1, aid2, row[2]))
 except:
 	print "***********************************************"
 	print "Error happened while creating the file author.txt"
@@ -130,23 +145,11 @@ finally:
 	if f:
 		f.close()
 
-# calculate the map between new number and old number
-aid_list = list(aid_set)
-aid_list.sort()
-
-map1 = dict()
-map2 = dict()
-num = 0
-for aid in aid_list:
-	map1[aid] = num
-	map2[num] = aid
-	num += 1
-
-
+# call the BGLL method
 os.system("./convert -i author/author.txt -o author/author.bin -w")
 os.system("./community author/author.bin -w -l -1 > author/author.tree")
 
-
+# read the result of BGLL
 output = os.popen("./hierarchy author/author.tree -n")
 level = total_level = len(output.readlines()) - 2
 
@@ -157,9 +160,6 @@ result =dict()			# recode which node presents the catogory in every level
 while level >= 1:
 	level_cate[level] = dict()
 	result[level] = dict()
-
-	cate = -1
-	aid = -1
 
 	output = os.popen("./hierarchy author/author.tree -l %d" % level)
 	for line in output.readlines():
@@ -175,75 +175,73 @@ while level >= 1:
 		if not level_cate[level].has_key(cate):
 			level_cate[level][cate] = set()
 
-		level_cate[level][cate].add(str(aid))
+		level_cate[level][cate].add(str(map2[aid]))
 
 	for cate in level_cate[level]:
 		a_set = level_cate[level][cate]
-		set_str = ','.join(a_set)
+		aid_str = ','.join(a_set)
 
-		try:
-			sql = 'select content from author_keyword_relation inner join keyword on kid = keyword.id where aid in (' + set_str + ')'
+		sql = 'select kid, content from author_keyword_relation inner join keyword on kid = keyword.id where aid in (' + aid_str + ')'
+		cursor.execute(sql)
+		sql_result = cursor.fetchall()
+		
+		if len(sql_result) != 0:
+			kid_set = set()
+			content_list = list()
+
+			for row in sql_result:
+				kid_set.add(str(row[0]))
+				content_list.append(row[1])
+		
+			content = CalcFather(content_list, is_used)
+			is_used.add(content)
+
+			# find the keyword id of the content
+			sql = "select id from keyword where content = '"+ content +"'"
 			cursor.execute(sql)
-			sql_result = cursor.fetchall()
-			
-			if len(sql_result) != 0:
-				content_list = list()
+			row = cursor.fetchone()
 
-				for row in sql_result:
-					content_list.append(row[0])
-			
-				content = CalcFather(content_list, is_used)
-				print content
-		except:
-			print "***********************************************"
-			print "select keyword content error"
-			print "***********************************************"
+			if row is not None:
+				is_used.add(str(row[0]))
 
+				# remvoe the used keyword
+				for kid in is_used:
+					if kid in kid_set:
+						kid_set.remove(kid)
+
+				result[level][cate] = row[0]
+				result[level][str(cate) + 'kids'] = kid_set
+
+			print content
 
 	level = level - 1
 
+# update the database according to the result
 
+sql = "update keyword set father = -1"
+cursor.execute(sql)
 
+level = total_level
+while level >= 1:
+	for cate in result[level]:
+		# judge if cate is a number
+		if not isinstance(cate, (int, long)):
+			continue
 
-# try:
-# 	sql = "update author set father = -1"
-# 	cursor.execute(sql)
+		if len(result[level][str(cate) + 'kids']) == 0:
+			continue
 
-# 	file_path = '/home/cowx/workspace/BGLL/author/author.tree'
-# 	f = open(file_path, 'r')
+		kid_str = ",".join(result[level][str(cate) + 'kids'])
+		sql = "update keyword set father = %d where id in (%s)" % (result[level][cate], kid_str)
+		cursor.execute(sql)
 
-# 	level = 0
-# 	for line in f.readlines():
-# 		line = line.strip()
+	level = level - 1
 
-# 		if line == '':
-# 			continue
+conn.commit()
 
-# 		arr = line.split(' ')
-# 		kid = int(arr[0])
-# 		cate = int(arr[1])
-
-# 		if kid == 0:
-# 			level = level + 1
-
-# 		if level >= total_level:
-# 			break
-
-# 		if level == 1 and result[level].has_key(cate):
-# 			sql = "update author set father = %d where id = %d" % (map2[result[level][cate]], map2[kid])
-# 		elif level != 1 and result[level].has_key(cate) and result[level - 1].has_key(kid):
-# 			sql = "update author set father = %d where id = %d" % (map2[result[level][cate]], map2[result[level - 1][kid]])
-
-# 		cursor.execute(sql)
-
-# except:
-# 	print "***********************************************"
-# 	print "Error happened while updating the database"
-# 	print "***********************************************"
-# finally:
-# 	if cursor:
-# 		cursor.close()
-# 	if conn:
-# 		conn.close()
+if cursor:
+	cursor.close()
+if conn:
+	conn.close()
 
 print "BGLL DONE."

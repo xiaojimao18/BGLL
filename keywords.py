@@ -10,9 +10,11 @@ db_name = "papernet"
 conn = ''		# global database connection
 cursor = ''		# global database cursor
 
-# read the database keyword_keyword_relation
+# read the database keyword_keyword_relation and write into keyword.txt
 kid_num = dict()	# the degree of each node
 kid_set = set()		# the set of all nodes
+map1 = dict()		# from old to new
+map2 = dict()		# from new to old
 try:
 	file_path = '/home/cowx/workspace/BGLL/keyword/keyword.txt'
 	f = open(file_path, 'w+')
@@ -27,10 +29,23 @@ try:
 		kid_set.add(row[0])
 		kid_set.add(row[1])
 
-		kid_num[row[0]] = kid_num.get(row[0], 0) + row[2]
-		kid_num[row[1]] = kid_num.get(row[1], 0) + row[2]
+	kid_list = list(kid_set)
+	kid_list.sort()
 
-		f.write('%d %d %d\n' % (row[0], row[1], row[2]))
+	num = 0
+	for kid in kid_list:
+		map1[kid] = num
+		map2[num] = kid
+		num += 1
+
+	for row in result:
+		kid1 = map1[row[0]]
+		kid2 = map1[row[1]]
+
+		kid_num[kid1] = kid_num.get(kid1, 0) + row[2]
+		kid_num[kid2] = kid_num.get(kid2, 0) + row[2]
+
+		f.write('%d %d %d\n' % (kid1, kid2, row[2]))
 except:
 	print "***********************************************"
 	print "Error happened while creating the file keyword.txt"
@@ -39,22 +54,11 @@ finally:
 	if f:
 		f.close()
 
-# calculate the map between new number and old number
-kid_list = list(kid_set)
-kid_list.sort()
-map1 = dict()
-map2 = dict()
-num = 0
-for kid in kid_list:
-	map1[kid] = num
-	map2[num] = kid
-	num += 1
-
-
+# call the BGLL method
 os.system("./convert -i keyword/keyword.txt -o keyword/keyword.bin -w")
 os.system("./community keyword/keyword.bin -w -l -1 > keyword/keyword.tree")
 
-
+# read the result of BGLL
 output = os.popen("./hierarchy keyword/keyword.tree -n")
 level = total_level = len(output.readlines()) - 2
 

@@ -6,7 +6,7 @@
 
 2. make
 
-3. python run.py
+3. python keywords.py  or  python authors.py
 
 
 ##注意
