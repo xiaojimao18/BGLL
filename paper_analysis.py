@@ -3,7 +3,7 @@ import os
 import CalcFather as calc
 
 # database config
-db_host = "bit1020.at.bitunion.org"
+db_host = "localhost"
 db_user = "root"
 db_pass = "root"
 db_name = "papernet"
@@ -80,6 +80,9 @@ while level >= 1:
 		pid  = int(arr[0])
 		cate = int(arr[1])
 
+		# for analysis
+		# f.write("%d %d\n" % (map2[pid], cate))
+
 		if not paper_children[level].has_key(cate):
 			paper_children[level][cate] = set()
 
@@ -127,6 +130,7 @@ while level >= 1:
 
 			print content, pid_str
 
+	f.close()
 	level = level - 1
 
 # update the database according to the result

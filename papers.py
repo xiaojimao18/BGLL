@@ -3,7 +3,7 @@ import os
 import CalcFather as calc
 
 # database config
-db_host = "bit1020.at.bitunion.org"
+db_host = "localhost"
 db_user = "root"
 db_pass = "root"
 db_name = "papernet"
@@ -102,7 +102,7 @@ while level >= 1:
 			is_used.add(content)
 
 			# find the keyword id of the content
-			sql = "select id from keyword where content = '"+ content +"'"
+			sql = "select id from keyword where content = '" + content + "'"
 			cursor.execute(sql)
 			row = cursor.fetchone()
 
@@ -126,17 +126,33 @@ sql = "update keyword set father = -1, is_father = 0"
 cursor.execute(sql)
 
 level = total_level
+is_updated = set()
+
+
+print is_updated
+
 while level >= 1:
-	for cate in keyword_father[level]:
+	for (cate, father) in keyword_father[level].items():
+		is_updated.add(str(father))
+
+		sql = "update keyword set is_father = 1 where id = %s" % father
+		cursor.execute(sql)
+
+	for (cate, father) in keyword_father[level].items():
 		if len(keyword_children[level][cate]) == 0:
 			continue
+		
+		for child in keyword_children[level][cate]:
+			if child not in is_updated:
+				sql = "update keyword set father = %s where id = %s" % (father, child)
+				cursor.execute(sql)
+				# print sql
+			else:
+				print child, father
+				pass
 
-		kid_str = ",".join(keyword_children[level][cate])
-		sql = "update keyword set father = %d where id in (%s)" % (keyword_father[level][cate], kid_str)
-		cursor.execute(sql)
-
-		sql = "update keyword set is_father = 1 where id = %s" % keyword_father[level][cate]
-		cursor.execute(sql)
+		sql = "update keyword set is_father = 1 where id = %s" % father
+		cursor.execute(sql)		
 
 	level = level - 1
 

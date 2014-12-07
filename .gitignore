@@ -3,3 +3,7 @@ community
 hierarchy
 
 *.o
+
+/paper
+/authoer
+/keyword
