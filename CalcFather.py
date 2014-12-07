@@ -58,7 +58,7 @@ def CalcFatherv2(wordlist, usedset):
                 if score.has_key(word):
                         score[word] += 1
                 else:
-                        score[word] = 0
+                        score[word] = 1
         bestword = ""
         bestscore = 0
         for word in wordlist:
