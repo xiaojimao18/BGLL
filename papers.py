@@ -1,166 +1,270 @@
-import MySQLdb
-import os
+import Queue
 import CalcFather as calc
+from database import Database
+from BGLL import BGLL
 
-# database config
-db_host = "localhost"
-db_user = "root"
-db_pass = "root"
-db_name = "papernet"
+class TreeNode(object):
+    level    = -1
+    group_id = -1
 
-# global database connection and cursor
-conn = MySQLdb.connect(db_host, db_user, db_pass, db_name)
-cursor = conn.cursor()
+    keyword      = ''
+    id_set       = ''
+    keyword_list = ''
 
-calc.init_similarity()
+    father_node    = ''
+    children_nodes = ''
 
-# read the database paper_paper_relation and write into paper.txt
-map1 = dict()	# from old to new
-map2 = dict()	# from new to old
-
-file_path = '/home/cowx/workspace/BGLL/paper/paper.txt'
-f = open(file_path, 'w+')
-
-sql = "select pid1, pid2 from paper_paper_relation order by pid1, pid2"
-cursor.execute(sql)
-result = cursor.fetchall()
-
-pid_set = set() # the set of all nodes
-for row in result:
-	pid_set.add(row[0])
-	pid_set.add(row[1])
-
-pid_list = list(pid_set)
-pid_list.sort()
-
-num = 0
-for pid in pid_list:
-	map1[pid] = num
-	map2[num] = pid
-	num += 1
-
-for row in result:
-	pid1 = map1[row[0]]
-	pid2 = map1[row[1]]
-
-	f.write('%d %d\n' % (pid1, pid2))
-
-f.close()
-
-# call the BGLL method
-os.system("BGLL/convert -i paper/paper.txt -o paper/paper.bin")
-os.system("BGLL/community paper/paper.bin -l -1 > paper/paper.tree")
-
-# read the result of BGLL
-output = os.popen("BGLL/hierarchy paper/paper.tree -n")
-level = total_level = len(output.readlines()) - 2
-
-# find the father of each node
-is_used = set()				# whether used the node as a category
-paper_children   = dict()	# record category in every level contains which papers 
-keyword_father   = dict()	# record which keyword presents the catogory in every level
-keyword_children = dict()	# record category in every level contains which keywords 
-while level >= 1:
-	paper_children[level]   = dict()
-	keyword_father[level]   = dict()
-	keyword_children[level] = dict()
-
-	# record category in every level contains which papers  
-	output = os.popen("BGLL/hierarchy paper/paper.tree -l %d" % level)
-	for line in output.readlines():
-		line = line.strip()
-
-		if line == '':
-			continue
-
-		arr = line.split(" ")
-		pid  = int(arr[0])
-		cate = int(arr[1])
-
-		if not paper_children[level].has_key(cate):
-			paper_children[level][cate] = set()
-
-		paper_children[level][cate].add(str(map2[pid]))
-
-	for cate in paper_children[level]:
-		pid_set = paper_children[level][cate]
-		pid_str = ','.join(pid_set)
-
-		sql = 'select kid, content from keyword_paper_relation inner join keyword on kid = keyword.id where pid in (' + pid_str + ')'
-		cursor.execute(sql)
-		sql_result = cursor.fetchall()
-		
-		if len(sql_result) != 0:
-			kid_set = set()
-			content_list = list()
-
-			for row in sql_result:
-				kid_set.add(str(row[0]))
-				content_list.append(row[1])
-		
-			content = calc.CalcFatherv2(content_list, is_used)
-			is_used.add(content)
-
-			# find the keyword id of the content
-			sql = "select id from keyword where content = '" + content + "'"
-			cursor.execute(sql)
-			row = cursor.fetchone()
-
-			if row is not None:
-				is_used.add(str(row[0]))
-
-				# remvoe the used keyword
-				for kid in is_used:
-					if kid in kid_set:
-						kid_set.remove(kid)
-
-				keyword_father[level][cate] = row[0]
-				keyword_children[level][cate] = kid_set
-
-			print content
-
-	level = level - 1
-
-# update the database according to the result
-sql = "update keyword set father = -1, is_father = 0"
-cursor.execute(sql)
-
-level = total_level
-is_updated = set()
+    def __init__(self):
+        self.id_set         = set()
+        self.keyword_list   = list()
+        self.children_nodes = set()
 
 
-print is_updated
+class PaperCluster(object):
+    #database config
+    db_host = 'localhost'
+    db_user = 'root'
+    db_pass = 'root'
+    db_name = 'papernet'
 
-while level >= 1:
-	for (cate, father) in keyword_father[level].items():
-		is_updated.add(str(father))
+    #BGLL config
+    output_path = './paper/'
+    is_weighted = False
 
-		sql = "update keyword set is_father = 1 where id = %s" % father
-		cursor.execute(sql)
+    BGLL     = ''
+    database = ''
 
-	for (cate, father) in keyword_father[level].items():
-		if len(keyword_children[level][cate]) == 0:
-			continue
-		
-		for child in keyword_children[level][cate]:
-			if child not in is_updated:
-				sql = "update keyword set father = %s where id = %s" % (father, child)
-				cursor.execute(sql)
-				# print sql
-			else:
-				print child, father
-				pass
+    map_old_to_new = dict()
+    map_new_to_old = dict()
 
-		sql = "update keyword set is_father = 1 where id = %s" % father
-		cursor.execute(sql)		
+    total_level = 0
 
-	level = level - 1
+    trees = set()
 
-conn.commit()
+    def __init__(self):
+        self.BGLL     = BGLL(self.output_path, self.is_weighted)
+        self.database = Database(self.db_host, self.db_user, self.db_pass, self.db_name)
 
-if cursor:
-	cursor.close()
-if conn:
-	conn.close()
+        calc.init_similarity()
 
-print "BGLL DONE."
+    def create_source_file(self):
+        f = open('./paper/bgll.txt', 'w+')
+
+        sql = "select pid1, pid2 from paper_paper_relation order by pid1, pid2"
+        result = self.database.executeSQL(sql)
+
+        pid_set = set() # the set of all nodes
+        for row in result:
+            pid_set.add(row[0])
+            pid_set.add(row[1])
+
+        pid_list = list(pid_set)
+        pid_list.sort()
+
+        num = 0
+        for pid in pid_list:
+            self.map_old_to_new[pid] = num
+            self.map_new_to_old[num] = pid
+            num += 1
+
+        for row in result:
+            pid1 = self.map_old_to_new[row[0]]
+            pid2 = self.map_old_to_new[row[1]]
+
+            f.write('%d %d\n' % (pid1, pid2))
+
+        f.close()
+
+        print 'create_source_file done.'
+
+    def build_trees(self):
+        level = self.total_level
+
+        node_dict = dict()
+        while level > 0:
+            output = self.BGLL.get_level_output(level)
+
+            node_dict[level] = dict()
+            for line in output:
+                line = line.strip()
+
+                if line == '':
+                    continue
+
+                (pid, cate) = line.split(' ')
+                pid  = int(pid)
+                cate = int(cate)
+
+                if cate not in node_dict[level]:
+                    node_dict[level][cate] = TreeNode()
+                    node_dict[level][cate].level = level
+
+                
+                node_dict[level][cate].id_set.add(self.map_new_to_old[pid])
+
+            level -= 1;
+
+        # tree roots
+        for (cate, node) in node_dict[self.total_level].items():
+            node.group_id = cate
+            self.trees.add(node)
+
+        level = self.total_level
+        while level > 1:
+            for (cate1, father) in node_dict[level].items():
+                for (cate2, child) in node_dict[level - 1].items():
+                    if father.id_set >= child.id_set:  # Superset
+                        child.group_id = father.group_id
+                        child.father_node = father
+                        father.children_nodes.add(child)
+
+            level -= 1
+
+        print 'build trees done.'
+
+    def find_keywords(self):
+        root_set = set()
+        for root in self.trees:
+            pid_str = ",".join(str(pid) for pid in root.id_set);
+            sql = "select content from keyword inner join keyword_paper_relation on keyword.id = kid where pid in (%s)" % pid_str
+            result = self.database.executeSQL(sql)
+            
+            for row in result:
+                root.keyword_list.append(row[0])
+
+            root.keyword = calc.CalcFatherv2(root.keyword_list, root_set)
+            root_set.add(root.keyword)
+            if root.keyword == '':
+                print '@@@@', root.keyword_list
+            else:
+                print root.keyword, root.level, root.group_id
+
+        for root in self.trees:
+            is_used_keywords = set() | root_set
+
+            node_queue = Queue.Queue(0) #0 means no max length queue
+            for child in root.children_nodes:
+                node_queue.put(child)
+
+            while not node_queue.empty():
+                node = node_queue.get()
+
+                pid_str = ",".join(str(pid) for pid in node.id_set);
+                sql = "select content from keyword inner join keyword_paper_relation on keyword.id = kid where pid in (%s)" % pid_str
+                result = self.database.executeSQL(sql)
+
+                for row in result:
+                    node.keyword_list.append(row[0])
+
+                node.keyword = calc.CalcFatherv2(node.keyword_list, is_used_keywords)
+                is_used_keywords.add(node.keyword)
+                if node.keyword == '':
+                    print '@@@@', node.keyword_list
+                else:
+                    print node.keyword, node.level, node.group_id
+
+                for child in node.children_nodes:
+                    node_queue.put(child)
+
+        print 'find keywords done.'
+
+    def update_keyword_hierarchy_relation(self):
+        sql = 'delete from keyword_hierarchy_relation'
+        self.database.executeSQL(sql)
+
+        sql = 'update keyword set is_father = 0, father = -1'
+        self.database.executeSQL(sql)
+
+        for root in self.trees:
+            node_queue = Queue.Queue(0) # 0 means no max length queue
+            node_queue.put(root)
+            while not node_queue.empty():
+                node = node_queue.get()
+                for child in node.children_nodes:
+                    try:
+                        sql = 'select id from keyword where content = "%s"' % node.keyword
+                        result = self.database.executeSQL(sql)
+                        kid1 = result[0][0]
+
+                        sql = 'select id from keyword where content = "%s"' % child.keyword
+                        result = self.database.executeSQL(sql)
+                        kid2 = result[0][0]
+
+                        sql = 'insert into keyword_hierarchy_relation(group_id, father, child) values(%d, %d, %d)' % (node.group_id, kid1, kid2)
+                        self.database.executeSQL(sql)
+
+                        sql = 'update keyword set is_father = 1 where content = "%s"' % node.keyword
+                        result = self.database.executeSQL(sql)
+                    except Exception, e:
+                        # print "###", sql, "###"
+                        # print node.keyword, "|",child.keyword
+                        # print e
+                        pass
+
+                    node_queue.put(child)
+
+        print 'update keyword hierarchy relation done.'
+
+    def update_knowledge_paper_relation(self):
+        sql = 'delete from knowledge_paper_relation'
+        self.database.executeSQL(sql)
+
+        for root in self.trees:
+            node_queue = Queue.Queue(0)
+            node_queue.put(root)
+            while not node_queue.empty():
+                node = node_queue.get()
+                if node.keyword != '':
+                    sql = 'select id from keyword where content = "%s"' % node.keyword
+                    result = self.database.executeSQL(sql)
+                    kid = result[0][0]
+
+                    for pid in node.id_set:
+                        sql = 'insert into knowledge_paper_relation(pid, kid) values (%d, %d)' % (pid, kid)
+                        self.database.executeSQL(sql)
+
+                for child in node.children_nodes:
+                    node_queue.put(child)
+
+        print 'update knowledge paper relation done'
+
+    def print_log(self):
+        f = open('./paper/analysis.log', 'w+')
+
+        for root in self.trees:
+            self.print_tree(root, 0, f)
+
+        f.close()
+        print 'log out done'
+
+    def print_tree(self, node, tabs, f):
+        for i in range(tabs):
+            f.write('\t')
+
+        f.write('#' + node.keyword + '#\n')
+        pid_str = ",".join(str(pid) for pid in node.id_set);
+        if pid_str != '':
+            sql = "select name from paper where id in (%s) order by name" % pid_str
+            result = self.database.executeSQL(sql)
+            for row in result:
+                for i in range(tabs):
+                    f.write('\t')
+                f.write(row[0] + '\n')
+
+        for child in node.children_nodes:
+            self.print_tree(child, tabs + 1, f)
+
+
+    def start(self):
+        self.create_source_file()
+        self.BGLL.callBGLL()
+        self.total_level = self.BGLL.get_total_level()
+
+        self.build_trees()
+        self.find_keywords()
+        self.update_keyword_hierarchy_relation()
+        self.update_knowledge_paper_relation()
+        self.print_log()
+
+pc = PaperCluster()
+pc.start()
